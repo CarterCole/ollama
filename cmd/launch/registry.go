@@ -6,6 +6,8 @@ import (
 	"os/exec"
 	"slices"
 	"strings"
+
+	"github.com/ollama/ollama/envconfig"
 )
 
 // IntegrationInstallSpec describes how launcher should detect and guide installation.
@@ -210,7 +212,48 @@ var integrationSpecs = []*IntegrationSpec{
 var integrationSpecsByName map[string]*IntegrationSpec
 
 func init() {
+	filterIntegrations()
 	rebuildIntegrationSpecIndexes()
+}
+
+func filterIntegrations() {
+	skippedStr := envconfig.SkipIntegrations()
+	if skippedStr == "" {
+		return
+	}
+	skipped := make(map[string]bool)
+	for _, s := range strings.Split(skippedStr, ",") {
+		skipped[strings.ToLower(strings.TrimSpace(s))] = true
+	}
+
+	filteredSpecs := make([]*IntegrationSpec, 0, len(integrationSpecs))
+	skippedCanonicalNames := make(map[string]bool)
+
+	for _, spec := range integrationSpecs {
+		skip := skipped[strings.ToLower(spec.Name)]
+		if !skip {
+			for _, alias := range spec.Aliases {
+				if skipped[strings.ToLower(alias)] {
+					skip = true
+					break
+				}
+			}
+		}
+		if skip {
+			skippedCanonicalNames[strings.ToLower(spec.Name)] = true
+		} else {
+			filteredSpecs = append(filteredSpecs, spec)
+		}
+	}
+	integrationSpecs = filteredSpecs
+
+	filteredOrder := make([]string, 0, len(launcherIntegrationOrder))
+	for _, name := range launcherIntegrationOrder {
+		if !skippedCanonicalNames[strings.ToLower(name)] {
+			filteredOrder = append(filteredOrder, name)
+		}
+	}
+	launcherIntegrationOrder = filteredOrder
 }
 
 func hyperlink(url, text string) string {
